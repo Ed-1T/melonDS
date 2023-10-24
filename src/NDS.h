@@ -21,6 +21,7 @@
 
 #include <string>
 
+#include "Platform.h"
 #include "Savestate.h"
 #include "types.h"
 
@@ -226,7 +227,9 @@ bool Init();
 void DeInit();
 void Reset();
 void Start();
-void Stop();
+
+/// Stop the emulator.
+void Stop(Platform::StopReason reason = Platform::StopReason::External);
 
 bool DoSavestate(Savestate* file);
 
@@ -237,6 +240,8 @@ void SetARM7RegionTimings(u32 addrstart, u32 addrend, u32 region, int buswidth, 
 void SetConsoleType(int type);
 
 void LoadBIOS();
+bool IsLoadedARM9BIOSBuiltIn();
+bool IsLoadedARM7BIOSBuiltIn();
 
 bool LoadCart(const u8* romdata, u32 romlen, const u8* savedata, u32 savelen);
 void LoadSave(const u8* savedata, u32 savelen);
@@ -244,7 +249,7 @@ void EjectCart();
 bool CartInserted();
 
 bool NeedsDirectBoot();
-void SetupDirectBoot(std::string romname);
+void SetupDirectBoot(const std::string& romname);
 
 bool LoadGBACart(const u8* romdata, u32 romlen, const u8* savedata, u32 savelen);
 void LoadGBAAddon(int type);

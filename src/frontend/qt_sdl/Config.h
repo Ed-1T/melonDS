@@ -44,13 +44,11 @@ enum
 
 enum
 {
-    screenSizing_Even,
-    screenSizing_EmphTop,
-    screenSizing_EmphBot,
-    screenSizing_Auto,
-    screenSizing_TopOnly,
-    screenSizing_BotOnly,
-    screenSizing_MAX,
+    micInputType_Silence,
+    micInputType_External,
+    micInputType_Noise,
+    micInputType_Wav,
+    micInputType_MAX,
 };
 
 namespace Config
@@ -154,6 +152,7 @@ extern int FirmwareBirthdayDay;
 extern int FirmwareFavouriteColour;
 extern std::string FirmwareMessage;
 extern std::string FirmwareMAC;
+extern std::string WifiSettingsPath;
 
 extern int MPAudioMode;
 extern int MPRecvTimeout;
@@ -164,10 +163,11 @@ extern bool DirectLAN;
 extern bool SavestateRelocSRAM;
 
 extern int AudioInterp;
-extern int AudioBitrate;
+extern int AudioBitDepth;
 extern int AudioVolume;
 extern bool DSiVolumeSync;
 extern int MicInputType;
+extern std::string MicDevice;
 extern std::string MicWavPath;
 
 extern std::string LastROMFolder;
@@ -189,7 +189,15 @@ extern bool DSBatteryLevelOkay;
 extern int DSiBatteryLevel;
 extern bool DSiBatteryCharging;
 
+extern bool DSiFullBIOSBoot;
+
 extern CameraConfig Camera[2];
+
+extern bool GdbEnabled;
+extern int GdbPortARM7;
+extern int GdbPortARM9;
+extern bool GdbARM7BreakOnStartup;
+extern bool GdbARM9BreakOnStartup;
 
 
 void Load();

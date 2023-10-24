@@ -20,11 +20,11 @@
 #include <string.h>
 #include "DSi.h"
 #include "DSi_SD.h"
+#include "DSi_NAND.h"
 #include "DSi_NWifi.h"
 #include "Platform.h"
 
-using Platform::Log;
-using Platform::LogLevel;
+using namespace Platform;
 
 // observed IRQ behavior during transfers
 //
@@ -138,11 +138,8 @@ void DSi_SDHost::Reset()
         else
             sd = nullptr;
 
-        std::string nandpath = Platform::GetConfigString(Platform::DSi_NANDPath);
-        std::string instnand = nandpath + Platform::InstanceFileSuffix();
-
-        mmc = new DSi_MMCStorage(this, true, instnand);
-        mmc->SetCID(DSi::eMMC_CID);
+        mmc = new DSi_MMCStorage(this, *DSi::NANDImage);
+        mmc->SetCID(DSi::NANDImage->GetEMMCID().data());
 
         Ports[0] = sd;
         Ports[1] = mmc;
@@ -769,22 +766,17 @@ void DSi_SDHost::CheckSwapFIFO()
 
 #define MMC_DESC  (Internal?"NAND":"SDcard")
 
-DSi_MMCStorage::DSi_MMCStorage(DSi_SDHost* host, bool internal, std::string filename)
-    : DSi_SDDevice(host)
+DSi_MMCStorage::DSi_MMCStorage(DSi_SDHost* host, DSi_NAND::NANDImage& nand)
+    : DSi_SDDevice(host), Internal(true), NAND(&nand), SD(nullptr)
 {
-    Internal = internal;
-    File = Platform::OpenLocalFile(filename, "r+b");
-
-    SD = nullptr;
-
     ReadOnly = false;
 }
 
-DSi_MMCStorage::DSi_MMCStorage(DSi_SDHost* host, bool internal, std::string filename, u64 size, bool readonly, std::string sourcedir)
+DSi_MMCStorage::DSi_MMCStorage(DSi_SDHost* host, bool internal, const std::string& filename, u64 size, bool readonly, const std::string& sourcedir)
     : DSi_SDDevice(host)
 {
     Internal = internal;
-    File = nullptr;
+    NAND = nullptr;
 
     SD = new FATStorage(filename, size, readonly, sourcedir);
     SD->Open();
@@ -799,10 +791,8 @@ DSi_MMCStorage::~DSi_MMCStorage()
         SD->Close();
         delete SD;
     }
-    if (File)
-    {
-        fclose(File);
-    }
+
+    // Do not close the NANDImage, it's not owned by this object
 }
 
 void DSi_MMCStorage::Reset()
@@ -926,7 +916,7 @@ void DSi_MMCStorage::SendCMD(u8 cmd, u32 param)
 
     case 12: // stop operation
         SetState(0x04);
-        if (File) fflush(File);
+        if (NAND) FileFlush(NAND->GetFile());
         RWCommand = 0;
         Host->SendResponse(CSR, true);
         return;
@@ -1053,10 +1043,10 @@ u32 DSi_MMCStorage::ReadBlock(u64 addr)
     {
         SD->ReadSectors((u32)(addr >> 9), 1, data);
     }
-    else if (File)
+    else if (NAND)
     {
-        fseek(File, addr, SEEK_SET);
-        fread(&data[addr & 0x1FF], 1, len, File);
+        FileSeek(NAND->GetFile(), addr, FileSeekOrigin::Start);
+        FileRead(&data[addr & 0x1FF], 1, len, NAND->GetFile());
     }
 
     return Host->DataRX(&data[addr & 0x1FF], len);
@@ -1083,10 +1073,10 @@ u32 DSi_MMCStorage::WriteBlock(u64 addr)
             {
                 SD->WriteSectors((u32)(addr >> 9), 1, data);
             }
-            else if (File)
+            else if (NAND)
             {
-                fseek(File, addr, SEEK_SET);
-                fwrite(&data[addr & 0x1FF], 1, len, File);
+                FileSeek(NAND->GetFile(), addr, FileSeekOrigin::Start);
+                FileWrite(&data[addr & 0x1FF], 1, len, NAND->GetFile());
             }
         }
     }

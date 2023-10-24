@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "DSi.h"
+#include "DSi_NAND.h"
 #include "DSi_AES.h"
 #include "FIFO.h"
 #include "tiny-AES-c/aes.hpp"
@@ -60,13 +61,6 @@ u8 OutputMAC[16];
 bool OutputMACDue;
 
 AES_ctx Ctx;
-
-
-void Swap16(u8* dst, u8* src)
-{
-    for (int i = 0; i < 16; i++)
-        dst[i] = src[15-i];
-}
 
 void ROL16(u8* val, u32 n)
 {
@@ -136,6 +130,7 @@ void Reset()
     OutputMACDue = false;
 
     // initialize keys
+    u64 consoleid = DSi::NANDImage->GetConsoleID();
 
     // slot 0: modcrypt
     *(u32*)&KeyX[0][0] = 0x746E694E;
@@ -144,14 +139,14 @@ void Reset()
     // slot 1: 'Tad'/dev.kp
     *(u32*)&KeyX[1][0] = 0x4E00004A;
     *(u32*)&KeyX[1][4] = 0x4A00004E;
-    *(u32*)&KeyX[1][8] = (u32)(DSi::ConsoleID >> 32) ^ 0xC80C4B72;
-    *(u32*)&KeyX[1][12] = (u32)DSi::ConsoleID;
+    *(u32*)&KeyX[1][8] = (u32)(consoleid >> 32) ^ 0xC80C4B72;
+    *(u32*)&KeyX[1][12] = (u32)consoleid;
 
     // slot 3: console-unique eMMC crypto
-    *(u32*)&KeyX[3][0] = (u32)DSi::ConsoleID;
-    *(u32*)&KeyX[3][4] = (u32)DSi::ConsoleID ^ 0x24EE6906;
-    *(u32*)&KeyX[3][8] = (u32)(DSi::ConsoleID >> 32) ^ 0xE65B601D;
-    *(u32*)&KeyX[3][12] = (u32)(DSi::ConsoleID >> 32);
+    *(u32*)&KeyX[3][0] = (u32)consoleid;
+    *(u32*)&KeyX[3][4] = (u32)consoleid ^ 0x24EE6906;
+    *(u32*)&KeyX[3][8] = (u32)(consoleid >> 32) ^ 0xE65B601D;
+    *(u32*)&KeyX[3][12] = (u32)(consoleid >> 32);
     *(u32*)&KeyY[3][0] = 0x0AB9DC76;
     *(u32*)&KeyY[3][4] = 0xBD4DC4D3;
     *(u32*)&KeyY[3][8] = 0x202DDD1D;
@@ -205,7 +200,7 @@ void ProcessBlock_CCM_Extra()
     *(u32*)&data[8] = InputFIFO.Read();
     *(u32*)&data[12] = InputFIFO.Read();
 
-    Swap16(data_rev, data);
+    Bswap128(data_rev, data);
 
     for (int i = 0; i < 16; i++) CurMAC[i] ^= data_rev[i];
     AES_ECB_encrypt(&Ctx, CurMAC);
@@ -223,13 +218,13 @@ void ProcessBlock_CCM_Decrypt()
 
     //printf("AES-CCM: "); _printhex2(data, 16);
 
-    Swap16(data_rev, data);
+    Bswap128(data_rev, data);
 
     AES_CTR_xcrypt_buffer(&Ctx, data_rev, 16);
     for (int i = 0; i < 16; i++) CurMAC[i] ^= data_rev[i];
     AES_ECB_encrypt(&Ctx, CurMAC);
 
-    Swap16(data, data_rev);
+    Bswap128(data, data_rev);
 
     //printf(" -> "); _printhex2(data, 16);
 
@@ -251,13 +246,13 @@ void ProcessBlock_CCM_Encrypt()
 
     //printf("AES-CCM: "); _printhex2(data, 16);
 
-    Swap16(data_rev, data);
+    Bswap128(data_rev, data);
 
     for (int i = 0; i < 16; i++) CurMAC[i] ^= data_rev[i];
     AES_CTR_xcrypt_buffer(&Ctx, data_rev, 16);
     AES_ECB_encrypt(&Ctx, CurMAC);
 
-    Swap16(data, data_rev);
+    Bswap128(data, data_rev);
 
     //printf(" -> "); _printhex2(data, 16);
 
@@ -279,9 +274,9 @@ void ProcessBlock_CTR()
 
     //printf("AES-CTR: "); _printhex2(data, 16);
 
-    Swap16(data_rev, data);
+    Bswap128(data_rev, data);
     AES_CTR_xcrypt_buffer(&Ctx, data_rev, 16);
-    Swap16(data, data_rev);
+    Bswap128(data, data_rev);
 
     //printf(" -> "); _printhex(data, 16);
 
@@ -341,8 +336,8 @@ void WriteCnt(u32 val)
             u8 key[16];
             u8 iv[16];
 
-            Swap16(key, CurKey);
-            Swap16(iv, IV);
+            Bswap128(key, CurKey);
+            Bswap128(iv, IV);
 
             if (AESMode < 2)
             {
@@ -510,7 +505,7 @@ void Update()
             Ctx.Iv[15] = 0x00;
             AES_CTR_xcrypt_buffer(&Ctx, CurMAC, 16);
 
-            Swap16(OutputMAC, CurMAC);
+            Bswap128(OutputMAC, CurMAC);
 
             if (OutputFIFO.Level() <= 12)
             {

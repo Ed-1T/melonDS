@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <atomic>
+#include <memory>
 #include <QThread>
 #include <QMutex>
 
@@ -34,11 +35,11 @@ class SaveManager : public QThread
     void run() override;
 
 public:
-    SaveManager(std::string path);
+    SaveManager(const std::string& path);
     ~SaveManager();
 
     std::string GetPath();
-    void SetPath(std::string path, bool reload);
+    void SetPath(const std::string& path, bool reload);
 
     void RequestFlush(const u8* savedata, u32 savelen, u32 writeoffset, u32 writelen);
     void CheckFlush();
@@ -51,12 +52,12 @@ private:
 
     std::atomic_bool Running;
 
-    u8* Buffer;
+    std::unique_ptr<u8[]> Buffer;
     u32 Length;
     bool FlushRequested;
 
     QMutex* SecondaryBufferLock;
-    u8* SecondaryBuffer;
+    std::unique_ptr<u8[]> SecondaryBuffer;
     u32 SecondaryBufferLength;
 
     time_t TimeAtLastFlushRequest;

@@ -45,8 +45,7 @@
 #include "DSi_Camera.h"
 #include "DSi_DSP.h"
 
-using Platform::Log;
-using Platform::LogLevel;
+using namespace Platform;
 
 namespace NDS
 {
@@ -227,10 +226,16 @@ void DeInit()
 #endif
 
     delete ARM9;
+    ARM9 = nullptr;
+
     delete ARM7;
+    ARM7 = nullptr;
 
     for (int i = 0; i < 8; i++)
+    {
         delete DMAs[i];
+        DMAs[i] = nullptr;
+    }
 
     NDSCart::DeInit();
     GBACart::DeInit();
@@ -370,42 +375,46 @@ bool NeedsDirectBoot()
             return true;
 
         // DSi/3DS firmwares aren't bootable
-        if (SPI_Firmware::GetFirmwareLength() == 0x20000)
+        if (!SPI_Firmware::GetFirmware()->IsBootable())
             return true;
 
         return false;
     }
 }
 
-void SetupDirectBoot(std::string romname)
+void SetupDirectBoot(const std::string& romname)
 {
+    const NDSHeader& header = NDSCart::Cart->GetHeader();
+
     if (ConsoleType == 1)
     {
         DSi::SetupDirectBoot();
     }
     else
     {
+        u32 cartid = NDSCart::Cart->ID();
+        const u8* cartrom = NDSCart::Cart->GetROM();
         MapSharedWRAM(3);
 
         // setup main RAM data
 
         for (u32 i = 0; i < 0x170; i+=4)
         {
-            u32 tmp = *(u32*)&NDSCart::CartROM[i];
+            u32 tmp = *(u32*)&cartrom[i];
             ARM9Write32(0x027FFE00+i, tmp);
         }
 
-        ARM9Write32(0x027FF800, NDSCart::CartID);
-        ARM9Write32(0x027FF804, NDSCart::CartID);
-        ARM9Write16(0x027FF808, NDSCart::Header.HeaderCRC16);
-        ARM9Write16(0x027FF80A, NDSCart::Header.SecureAreaCRC16);
+        ARM9Write32(0x027FF800, cartid);
+        ARM9Write32(0x027FF804, cartid);
+        ARM9Write16(0x027FF808, header.HeaderCRC16);
+        ARM9Write16(0x027FF80A, header.SecureAreaCRC16);
 
         ARM9Write16(0x027FF850, 0x5835);
 
-        ARM9Write32(0x027FFC00, NDSCart::CartID);
-        ARM9Write32(0x027FFC04, NDSCart::CartID);
-        ARM9Write16(0x027FFC08, NDSCart::Header.HeaderCRC16);
-        ARM9Write16(0x027FFC0A, NDSCart::Header.SecureAreaCRC16);
+        ARM9Write32(0x027FFC00, cartid);
+        ARM9Write32(0x027FFC04, cartid);
+        ARM9Write16(0x027FFC08, header.HeaderCRC16);
+        ARM9Write16(0x027FFC0A, header.SecureAreaCRC16);
 
         ARM9Write16(0x027FFC10, 0x5835);
         ARM9Write16(0x027FFC30, 0xFFFF);
@@ -414,30 +423,30 @@ void SetupDirectBoot(std::string romname)
         u32 arm9start = 0;
 
         // load the ARM9 secure area
-        if (NDSCart::Header.ARM9ROMOffset >= 0x4000 && NDSCart::Header.ARM9ROMOffset < 0x8000)
+        if (header.ARM9ROMOffset >= 0x4000 && header.ARM9ROMOffset < 0x8000)
         {
             u8 securearea[0x800];
             NDSCart::DecryptSecureArea(securearea);
 
             for (u32 i = 0; i < 0x800; i+=4)
             {
-                ARM9Write32(NDSCart::Header.ARM9RAMAddress+i, *(u32*)&securearea[i]);
+                ARM9Write32(header.ARM9RAMAddress+i, *(u32*)&securearea[i]);
                 arm9start += 4;
             }
         }
 
         // CHECKME: firmware seems to load this in 0x200 byte chunks
 
-        for (u32 i = arm9start; i < NDSCart::Header.ARM9Size; i+=4)
+        for (u32 i = arm9start; i < header.ARM9Size; i+=4)
         {
-            u32 tmp = *(u32*)&NDSCart::CartROM[NDSCart::Header.ARM9ROMOffset+i];
-            ARM9Write32(NDSCart::Header.ARM9RAMAddress+i, tmp);
+            u32 tmp = *(u32*)&cartrom[header.ARM9ROMOffset+i];
+            ARM9Write32(header.ARM9RAMAddress+i, tmp);
         }
 
-        for (u32 i = 0; i < NDSCart::Header.ARM7Size; i+=4)
+        for (u32 i = 0; i < header.ARM7Size; i+=4)
         {
-            u32 tmp = *(u32*)&NDSCart::CartROM[NDSCart::Header.ARM7ROMOffset+i];
-            ARM7Write32(NDSCart::Header.ARM7RAMAddress+i, tmp);
+            u32 tmp = *(u32*)&cartrom[header.ARM7ROMOffset+i];
+            ARM7Write32(header.ARM7RAMAddress+i, tmp);
         }
 
         ARM7BIOSProt = 0x1204;
@@ -472,20 +481,20 @@ void SetupDirectBoot(std::string romname)
 
     NDSCart::SetupDirectBoot(romname);
 
-    ARM9->R[12] = NDSCart::Header.ARM9EntryAddress;
+    ARM9->R[12] = header.ARM9EntryAddress;
     ARM9->R[13] = 0x03002F7C;
-    ARM9->R[14] = NDSCart::Header.ARM9EntryAddress;
+    ARM9->R[14] = header.ARM9EntryAddress;
     ARM9->R_IRQ[0] = 0x03003F80;
     ARM9->R_SVC[0] = 0x03003FC0;
 
-    ARM7->R[12] = NDSCart::Header.ARM7EntryAddress;
+    ARM7->R[12] = header.ARM7EntryAddress;
     ARM7->R[13] = 0x0380FD80;
-    ARM7->R[14] = NDSCart::Header.ARM7EntryAddress;
+    ARM7->R[14] = header.ARM7EntryAddress;
     ARM7->R_IRQ[0] = 0x0380FF80;
     ARM7->R_SVC[0] = 0x0380FFC0;
 
-    ARM9->JumpTo(NDSCart::Header.ARM9EntryAddress);
-    ARM7->JumpTo(NDSCart::Header.ARM7EntryAddress);
+    ARM9->JumpTo(header.ARM9EntryAddress);
+    ARM7->JumpTo(header.ARM7EntryAddress);
 
     PostFlag9 = 0x01;
     PostFlag7 = 0x01;
@@ -505,7 +514,7 @@ void SetupDirectBoot(std::string romname)
 
 void Reset()
 {
-    FILE* f;
+    Platform::FileHandle* f;
     u32 i;
 
 #ifdef JIT_ENABLED
@@ -515,53 +524,7 @@ void Reset()
     RunningGame = false;
     LastSysClockCycles = 0;
 
-    memset(ARM9BIOS, 0, 0x1000);
-    memset(ARM7BIOS, 0, 0x4000);
-
-    // DS BIOSes are always loaded, even in DSi mode
-    // we need them for DS-compatible mode
-
-    if (Platform::GetConfigBool(Platform::ExternalBIOSEnable))
-    {
-        f = Platform::OpenLocalFile(Platform::GetConfigString(Platform::BIOS9Path), "rb");
-        if (!f)
-        {
-            Log(LogLevel::Warn, "ARM9 BIOS not found\n");
-
-            for (i = 0; i < 16; i++)
-                ((u32*)ARM9BIOS)[i] = 0xE7FFDEFF;
-        }
-        else
-        {
-            fseek(f, 0, SEEK_SET);
-            fread(ARM9BIOS, 0x1000, 1, f);
-
-            Log(LogLevel::Info, "ARM9 BIOS loaded\n");
-            fclose(f);
-        }
-
-        f = Platform::OpenLocalFile(Platform::GetConfigString(Platform::BIOS7Path), "rb");
-        if (!f)
-        {
-            Log(LogLevel::Warn, "ARM7 BIOS not found\n");
-
-            for (i = 0; i < 16; i++)
-                ((u32*)ARM7BIOS)[i] = 0xE7FFDEFF;
-        }
-        else
-        {
-            fseek(f, 0, SEEK_SET);
-            fread(ARM7BIOS, 0x4000, 1, f);
-
-            Log(LogLevel::Info, "ARM7 BIOS loaded\n");
-            fclose(f);
-        }
-    }
-    else
-    {
-        memcpy(ARM9BIOS, bios_arm9_bin, bios_arm9_bin_len);
-        memcpy(ARM7BIOS, bios_arm7_bin, bios_arm7_bin_len);
-    }
+    // BIOS files are now loaded by the frontend
 
 #ifdef JIT_ENABLED
     ARMJIT::Reset();
@@ -569,7 +532,7 @@ void Reset()
 
     if (ConsoleType == 1)
     {
-        DSi::LoadBIOS();
+        // BIOS files are now loaded by the frontend
 
         ARM9ClockShift = 2;
         MainRAMMask = 0xFFFFFF;
@@ -674,10 +637,10 @@ void Reset()
         degradeAudio = false;
     }
 
-    int bitrate = Platform::GetConfigInt(Platform::AudioBitrate);
-    if (bitrate == 1) // Always 10-bit
+    int bitDepth = Platform::GetConfigInt(Platform::AudioBitDepth);
+    if (bitDepth == 1) // Always 10-bit
         degradeAudio = true;
-    else if (bitrate == 2) // Always 16-bit
+    else if (bitDepth == 2) // Always 16-bit
         degradeAudio = false;
 
     SPU::SetDegrade10Bit(degradeAudio);
@@ -690,11 +653,44 @@ void Start()
     Running = true;
 }
 
-void Stop()
+static const char* StopReasonName(Platform::StopReason reason)
 {
-    Log(LogLevel::Info, "Stopping: shutdown\n");
+    switch (reason)
+    {
+        case Platform::StopReason::External:
+            return "External";
+        case Platform::StopReason::PowerOff:
+            return "PowerOff";
+        case Platform::StopReason::GBAModeNotSupported:
+            return "GBAModeNotSupported";
+        case Platform::StopReason::BadExceptionRegion:
+            return "BadExceptionRegion";
+        default:
+            return "Unknown";
+    }
+}
+
+void Stop(Platform::StopReason reason)
+{
+    Platform::LogLevel level;
+    switch (reason)
+    {
+        case Platform::StopReason::External:
+        case Platform::StopReason::PowerOff:
+            level = LogLevel::Info;
+            break;
+        case Platform::StopReason::GBAModeNotSupported:
+        case Platform::StopReason::BadExceptionRegion:
+            level = LogLevel::Error;
+            break;
+        default:
+            level = LogLevel::Warn;
+            break;
+    }
+
+    Log(level, "Stopping emulated console (Reason: %s)\n", StopReasonName(reason));
     Running = false;
-    Platform::StopEmu();
+    Platform::SignalStop(reason);
     GPU::Stop();
     SPU::Stop();
 
@@ -815,7 +811,10 @@ bool DoSavestate(Savestate* file)
         u32 console;
         file->Var32(&console);
         if (console != ConsoleType)
+        {
+            Log(LogLevel::Error, "savestate: Expected console type %d, got console type %d. cannot load.\n", ConsoleType, console);
             return false;
+        }
     }
 
     file->VarArray(MainRAM, MainRAMMaxSize);
@@ -870,7 +869,11 @@ bool DoSavestate(Savestate* file)
 
     file->VarArray(DMA9Fill, 4*sizeof(u32));
 
-    if (!DoSavestate_Scheduler(file)) return false;
+    if (!DoSavestate_Scheduler(file))
+    {
+        Platform::Log(Platform::LogLevel::Error, "savestate: failed to %s scheduler state\n", file->Saving ? "save" : "load");
+        return false;
+    }
     file->Var32(&SchedListMask);
     file->Var64(&ARM9Timestamp);
     file->Var64(&ARM9Target);
@@ -937,6 +940,8 @@ bool DoSavestate(Savestate* file)
     }
 #endif
 
+    file->Finish();
+
     return true;
 }
 
@@ -969,7 +974,7 @@ void EjectCart()
 
 bool CartInserted()
 {
-    return NDSCart::CartInserted;
+    return NDSCart::Cart != nullptr;
 }
 
 bool LoadGBACart(const u8* romdata, u32 romlen, const u8* savedata, u32 savelen)
@@ -998,6 +1003,15 @@ void LoadBIOS()
     Reset();
 }
 
+bool IsLoadedARM9BIOSBuiltIn()
+{
+    return memcmp(NDS::ARM9BIOS, bios_arm9_bin, sizeof(NDS::ARM9BIOS)) == 0;
+}
+
+bool IsLoadedARM7BIOSBuiltIn()
+{
+    return memcmp(NDS::ARM7BIOS, bios_arm7_bin, sizeof(NDS::ARM7BIOS)) == 0;
+}
 
 u64 NextTarget()
 {
@@ -1054,6 +1068,9 @@ u32 RunFrame()
     bool runFrame = Running && !(CPUStop & 0x40000000);
     if (runFrame)
     {
+        ARM9->CheckGdbIncoming();
+        ARM7->CheckGdbIncoming();
+
         GPU::StartFrame();
 
         while (Running && GPU::TotalScanlines==0)
@@ -1657,9 +1674,10 @@ void MonitorARM9Jump(u32 addr)
     // checkme: can the entrypoint addr be THUMB?
     // also TODO: make it work in DSi mode
 
-    if ((!RunningGame) && NDSCart::CartROM)
+    if ((!RunningGame) && NDSCart::Cart)
     {
-        if (addr == *(u32*)&NDSCart::CartROM[0x24])
+        const NDSHeader& header = NDSCart::Cart->GetHeader();
+        if (addr == header.ARM9EntryAddress)
         {
             Log(LogLevel::Info, "Game is now booting\n");
             RunningGame = true;
@@ -2091,7 +2109,7 @@ u8 ARM9Read8(u32 addr)
         return GBACart::SRAMRead(addr);
     }
 
-    Log(LogLevel::Warn, "unknown arm9 read8 %08X\n", addr);
+    Log(LogLevel::Debug, "unknown arm9 read8 %08X\n", addr);
     return 0;
 }
 
@@ -2258,7 +2276,7 @@ void ARM9Write8(u32 addr, u8 val)
         return;
     }
 
-    Log(LogLevel::Warn, "unknown arm9 write8 %08X %02X\n", addr, val);
+    Log(LogLevel::Debug, "unknown arm9 write8 %08X %02X\n", addr, val);
 }
 
 void ARM9Write16(u32 addr, u16 val)
@@ -2490,7 +2508,7 @@ u8 ARM7Read8(u32 addr)
         return GBACart::SRAMRead(addr);
     }
 
-    Log(LogLevel::Warn, "unknown arm7 read8 %08X %08X %08X/%08X\n", addr, ARM7->R[15], ARM7->R[0], ARM7->R[1]);
+    Log(LogLevel::Debug, "unknown arm7 read8 %08X %08X %08X/%08X\n", addr, ARM7->R[15], ARM7->R[0], ARM7->R[1]);
     return 0;
 }
 
@@ -2556,7 +2574,7 @@ u16 ARM7Read16(u32 addr)
               (GBACart::SRAMRead(addr+1) << 8);
     }
 
-    Log(LogLevel::Warn, "unknown arm7 read16 %08X %08X\n", addr, ARM7->R[15]);
+    Log(LogLevel::Debug, "unknown arm7 read16 %08X %08X\n", addr, ARM7->R[15]);
     return 0;
 }
 
@@ -2693,7 +2711,7 @@ void ARM7Write8(u32 addr, u8 val)
 
     //if (ARM7->R[15] > 0x00002F30) // ARM7 BIOS bug
     if (addr >= 0x01000000)
-        Log(LogLevel::Warn, "unknown arm7 write8 %08X %02X @ %08X\n", addr, val, ARM7->R[15]);
+        Log(LogLevel::Debug, "unknown arm7 write8 %08X %02X @ %08X\n", addr, val, ARM7->R[15]);
 }
 
 void ARM7Write16(u32 addr, u16 val)
@@ -2773,7 +2791,7 @@ void ARM7Write16(u32 addr, u16 val)
     }
 
     if (addr >= 0x01000000)
-        Log(LogLevel::Warn, "unknown arm7 write16 %08X %04X @ %08X\n", addr, val, ARM7->R[15]);
+        Log(LogLevel::Debug, "unknown arm7 write16 %08X %04X @ %08X\n", addr, val, ARM7->R[15]);
 }
 
 void ARM7Write32(u32 addr, u32 val)
@@ -2857,7 +2875,7 @@ void ARM7Write32(u32 addr, u32 val)
     }
 
     if (addr >= 0x01000000)
-        Log(LogLevel::Warn, "unknown arm7 write32 %08X %08X @ %08X\n", addr, val, ARM7->R[15]);
+        Log(LogLevel::Debug, "unknown arm7 write32 %08X %08X @ %08X\n", addr, val, ARM7->R[15]);
 }
 
 bool ARM7GetMemRegion(u32 addr, bool write, MemRegion* region)
@@ -3018,7 +3036,7 @@ u8 ARM9IORead8(u32 addr)
     }
 
     if ((addr & 0xFFFFF000) != 0x04004000)
-        Log(LogLevel::Warn, "unknown ARM9 IO read8 %08X %08X\n", addr, ARM9->R[15]);
+        Log(LogLevel::Debug, "unknown ARM9 IO read8 %08X %08X\n", addr, ARM9->R[15]);
     return 0;
 }
 
@@ -3165,7 +3183,7 @@ u16 ARM9IORead16(u32 addr)
     }
 
     if ((addr & 0xFFFFF000) != 0x04004000)
-        Log(LogLevel::Warn, "unknown ARM9 IO read16 %08X %08X\n", addr, ARM9->R[15]);
+        Log(LogLevel::Debug, "unknown ARM9 IO read16 %08X %08X\n", addr, ARM9->R[15]);
     return 0;
 }
 
@@ -3309,7 +3327,7 @@ u32 ARM9IORead32(u32 addr)
     }
 
     if ((addr & 0xFFFFF000) != 0x04004000)
-        Log(LogLevel::Warn, "unknown ARM9 IO read32 %08X %08X\n", addr, ARM9->R[15]);
+        Log(LogLevel::Debug, "unknown ARM9 IO read32 %08X %08X\n", addr, ARM9->R[15]);
     return 0;
 }
 
@@ -3390,7 +3408,7 @@ void ARM9IOWrite8(u32 addr, u8 val)
         return;
     }
 
-    Log(LogLevel::Warn, "unknown ARM9 IO write8 %08X %02X %08X\n", addr, val, ARM9->R[15]);
+    Log(LogLevel::Debug, "unknown ARM9 IO write8 %08X %02X %08X\n", addr, val, ARM9->R[15]);
 }
 
 void ARM9IOWrite16(u32 addr, u16 val)
@@ -3574,7 +3592,7 @@ void ARM9IOWrite16(u32 addr, u16 val)
         return;
     }
 
-    Log(LogLevel::Warn, "unknown ARM9 IO write16 %08X %04X %08X\n", addr, val, ARM9->R[15]);
+    Log(LogLevel::Debug, "unknown ARM9 IO write16 %08X %04X %08X\n", addr, val, ARM9->R[15]);
 }
 
 void ARM9IOWrite32(u32 addr, u32 val)
@@ -3772,7 +3790,7 @@ void ARM9IOWrite32(u32 addr, u32 val)
         return;
     }
 
-    Log(LogLevel::Warn, "unknown ARM9 IO write32 %08X %08X %08X\n", addr, val, ARM9->R[15]);
+    Log(LogLevel::Debug, "unknown ARM9 IO write32 %08X %08X %08X\n", addr, val, ARM9->R[15]);
 }
 
 
@@ -3846,7 +3864,7 @@ u8 ARM7IORead8(u32 addr)
     }
 
     if ((addr & 0xFFFFF000) != 0x04004000)
-        Log(LogLevel::Warn, "unknown ARM7 IO read8 %08X %08X\n", addr, ARM7->R[15]);
+        Log(LogLevel::Debug, "unknown ARM7 IO read8 %08X %08X\n", addr, ARM7->R[15]);
     return 0;
 }
 
@@ -3940,7 +3958,7 @@ u16 ARM7IORead16(u32 addr)
     }
 
     if ((addr & 0xFFFFF000) != 0x04004000)
-        Log(LogLevel::Warn, "unknown ARM7 IO read16 %08X %08X\n", addr, ARM7->R[15]);
+        Log(LogLevel::Debug, "unknown ARM7 IO read16 %08X %08X\n", addr, ARM7->R[15]);
     return 0;
 }
 
@@ -4041,7 +4059,7 @@ u32 ARM7IORead32(u32 addr)
     }
 
     if ((addr & 0xFFFFF000) != 0x04004000)
-        Log(LogLevel::Warn, "unknown ARM7 IO read32 %08X %08X\n", addr, ARM7->R[15]);
+        Log(LogLevel::Debug, "unknown ARM7 IO read32 %08X %08X\n", addr, ARM7->R[15]);
     return 0;
 }
 
@@ -4107,7 +4125,7 @@ void ARM7IOWrite8(u32 addr, u8 val)
 
     case 0x04000301:
         val &= 0xC0;
-        if      (val == 0x40) Log(LogLevel::Warn, "!! GBA MODE NOT SUPPORTED\n");
+        if      (val == 0x40) Stop(StopReason::GBAModeNotSupported);
         else if (val == 0x80) ARM7->Halt(1);
         else if (val == 0xC0) EnterSleepMode();
         return;
@@ -4119,7 +4137,7 @@ void ARM7IOWrite8(u32 addr, u8 val)
         return;
     }
 
-    Log(LogLevel::Warn, "unknown ARM7 IO write8 %08X %02X %08X\n", addr, val, ARM7->R[15]);
+    Log(LogLevel::Debug, "unknown ARM7 IO write8 %08X %02X %08X\n", addr, val, ARM7->R[15]);
 }
 
 void ARM7IOWrite16(u32 addr, u16 val)
@@ -4274,7 +4292,7 @@ void ARM7IOWrite16(u32 addr, u16 val)
         return;
     }
 
-    Log(LogLevel::Warn, "unknown ARM7 IO write16 %08X %04X %08X\n", addr, val, ARM7->R[15]);
+    Log(LogLevel::Debug, "unknown ARM7 IO write16 %08X %04X %08X\n", addr, val, ARM7->R[15]);
 }
 
 void ARM7IOWrite32(u32 addr, u32 val)
@@ -4408,7 +4426,7 @@ void ARM7IOWrite32(u32 addr, u32 val)
         return;
     }
 
-    Log(LogLevel::Warn, "unknown ARM7 IO write32 %08X %08X %08X\n", addr, val, ARM7->R[15]);
+    Log(LogLevel::Debug, "unknown ARM7 IO write32 %08X %08X %08X\n", addr, val, ARM7->R[15]);
 }
 
 }
