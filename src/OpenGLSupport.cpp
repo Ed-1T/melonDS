@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2022 melonDS team
+    Copyright 2016-2023 melonDS team
 
     This file is part of melonDS.
 
@@ -17,6 +17,9 @@
 */
 
 #include "OpenGLSupport.h"
+
+namespace melonDS
+{
 
 using Platform::Log;
 using Platform::LogLevel;
@@ -139,6 +142,8 @@ void UseShaderProgram(GLuint* ids)
     { // If OpenGL isn't loaded, then there's no shader program to use
         glUseProgram(ids[2]);
     }
+}
+
 }
 
 }
